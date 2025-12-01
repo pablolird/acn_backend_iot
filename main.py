@@ -15,6 +15,7 @@ import json
 import serial
 from typing import Set
 from datetime import datetime
+from pydantic import BaseModel
 import uvicorn
 import argparse
 
@@ -41,6 +42,9 @@ ARDUINO_UNO_IDS = [
     (0x1A86, 0x7523),  # CH340 chip (common in clones)
 ]
 BAUD_RATE = 9600
+
+class JoystickButton(BaseModel):
+    pressed: bool
 
 def log(message):
     """Print log with timestamp"""
@@ -105,21 +109,20 @@ async def read_arduino_data():
                     log(f"📥 Raw line #{line_count}: {line}")
                     
                     # Replace 'nan' with 'null' to make it valid JSON
-                    # This handles the Arduino sending nan for invalid sensor readings
                     line_fixed = line.replace(':nan,', ':null,').replace(':nan}', ':null}')
                     
                     # Try to parse as JSON
                     data = json.loads(line_fixed)
                     valid_json_count += 1
                     
-                    # Extract the values we need, including intruder and fire status
+                    # Extract the values we need
                     filtered_data = {
                         "temperature_c": data.get("temperature_c"),
                         "humidity": data.get("humidity"),
                         "brightness": data.get("brightness"),
                         "sound": data.get("sound"),
-                        "intruder": data.get("intruder", False),  # Add intruder detection
-                        "fire": data.get("fire", False)  # Add fire detection
+                        "intruder": data.get("intruder", False),
+                        "fire": data.get("fire", False)
                     }
                     
                     log(f"✅ Valid JSON #{valid_json_count}: {filtered_data}")
@@ -140,10 +143,6 @@ async def read_arduino_data():
             
     except serial.SerialException as e:
         log(f"❌ Serial error: {e}")
-        log("   This usually means:")
-        log("   - Arduino was disconnected")
-        log("   - Port is in use by another program")
-        log("   - Permissions issue (try: sudo chmod 666 /dev/ttyUSB* or /dev/ttyACM*)")
     except Exception as e:
         log(f"❌ Error reading Arduino: {e}")
         import traceback
@@ -182,6 +181,16 @@ async def websocket_endpoint(websocket: WebSocket):
         log(f"🔌 Client {client_id} disconnected")
         log(f"   Remaining clients: {len(active_connections)}")
 
+@app.post("/joystick/button")
+async def joystick_button_pressed(button: JoystickButton):
+    """Handle joystick button press and broadcast to all WebSocket clients"""
+    log(f"🎮 Joystick button event received: {button.pressed}")
+    
+    # Broadcast button press to all connected WebSocket clients
+    await broadcast({"type": "joystick_button", "pressed": button.pressed})
+    
+    return {"status": "ok", "message": "Button press broadcasted"}
+
 @app.on_event("startup")
 async def startup_event():
     """Start Arduino data reading on server startup"""
@@ -195,22 +204,21 @@ async def root():
     return {
         "message": "Arduino WebSocket Server",
         "endpoint": "/ws",
+        "joystick_endpoint": "/joystick/button",
         "active_connections": len(active_connections),
         "status": "running"
     }
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0", help="Host address to bind")
     parser.add_argument("--port", default=8000, type=int, help="Port to bind")
     args = parser.parse_args()
 
     log("=" * 60)
-    log("Arduino WebSocket Server")
+    log("Arduino WebSocket Server with Joystick Support")
     log(f"Host: {args.host}")
     log(f"Port: {args.port}")
     log("=" * 60)
 
     uvicorn.run(app, host=args.host, port=args.port)
-
