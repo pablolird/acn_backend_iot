@@ -15,6 +15,9 @@ import json
 import serial
 from typing import Set
 from datetime import datetime
+import uvicorn
+import argparse
+
 
 app = FastAPI()
 
@@ -197,8 +200,17 @@ async def root():
     }
 
 if __name__ == "__main__":
-    import uvicorn
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0", help="Host address to bind")
+    parser.add_argument("--port", default=8000, type=int, help="Port to bind")
+    args = parser.parse_args()
+
     log("=" * 60)
     log("Arduino WebSocket Server")
+    log(f"Host: {args.host}")
+    log(f"Port: {args.port}")
     log("=" * 60)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(app, host=args.host, port=args.port)
+
