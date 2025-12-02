@@ -15,7 +15,7 @@ from datetime import datetime
 JOYSTICK_BUTTON_PIN = 17  # Change this to match your wiring
 
 # Backend API endpoint
-API_ENDPOINT = "http://localhost:8000/joystick/button"
+API_ENDPOINT = "http://10.42.0.225:8000/joystick/button"
 
 def log(message):
     """Print log with timestamp"""
@@ -24,15 +24,23 @@ def log(message):
 
 def setup_gpio():
     """Initialize GPIO for joystick button"""
+    # Clean up any previous GPIO settings
+    GPIO.setwarnings(False)
+    GPIO.cleanup()
+    
+    # Set mode and configure pin
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(JOYSTICK_BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    
+    # Give it a moment to stabilize
+    time.sleep(0.1)
+    
     log(f"✅ GPIO initialized - Button pin: {JOYSTICK_BUTTON_PIN}")
 
-def button_callback(channel):
-    """Callback function when button is pressed"""
+def send_button_press():
+    """Send button press to backend"""
     log("🎮 Joystick button PRESSED!")
     try:
-        # Send button press to backend
         response = requests.post(API_ENDPOINT, json={"pressed": True}, timeout=0.5)
         if response.status_code == 200:
             log("✅ Button press sent to backend")
@@ -53,19 +61,27 @@ def main():
     try:
         setup_gpio()
         
-        # Add event detection for button press (falling edge = button pressed)
-        GPIO.add_event_detect(
-            JOYSTICK_BUTTON_PIN,
-            GPIO.FALLING,
-            callback=button_callback,
-            bouncetime=200  # 200ms debounce
-        )
+        log("👂 Listening for button presses (polling mode)...")
+        log("💡 Tip: Run with sudo if you encounter permission issues")
         
-        log("👂 Listening for button presses...")
+        last_state = GPIO.input(JOYSTICK_BUTTON_PIN)
+        button_pressed = False
         
-        # Keep the script running
+        # Polling loop instead of event detection
         while True:
-            time.sleep(0.1)
+            current_state = GPIO.input(JOYSTICK_BUTTON_PIN)
+            
+            # Button is pressed when state goes from HIGH (1) to LOW (0)
+            if last_state == 1 and current_state == 0 and not button_pressed:
+                send_button_press()
+                button_pressed = True
+            
+            # Button is released when state goes back to HIGH
+            elif current_state == 1 and button_pressed:
+                button_pressed = False
+            
+            last_state = current_state
+            time.sleep(0.01)  # Poll every 10ms
             
     except KeyboardInterrupt:
         log("\n🛑 Shutting down...")
